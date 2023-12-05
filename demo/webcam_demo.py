@@ -43,7 +43,7 @@ def parse_args():
     parser.add_argument(
         '--mesh_reg_checkpoint',
         type=str,
-        default='data/checkpoints/hrnet_w32_conv_pare_mosh.pth',
+        default='data/pretrained_models/hrnet_w32_conv_pare_mosh.pth',
         help='Checkpoint file for mesh regression')
     parser.add_argument('--cam-id', type=str, default='0')
     parser.add_argument(
@@ -323,7 +323,7 @@ def display():
     event_exit.set()
 
 
-def main():
+def main(**kwargs):
     global args
     global frame_buffer
     global input_queue, input_queue_mutex
@@ -333,6 +333,9 @@ def main():
     global event_exit, event_inference_done
     global renderer
     args = parse_args()
+    for key, value in kwargs.items():
+        setattr(args, key, value)
+
     assert has_mmdet, 'Please install mmdet to run the demo.'
     assert args.det_config is not None
     assert args.det_checkpoint is not None
