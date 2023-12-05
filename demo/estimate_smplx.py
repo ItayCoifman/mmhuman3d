@@ -206,6 +206,8 @@ def single_person_with_mmdet(args, frames_iter):
         smplx['betas'] = smplx_results['betas']
         human_data['smplx'] = smplx
         human_data['pred_cams'] = pred_cams
+        # todo remove later:
+        np.savez(osp.join(args.output, 'smplx.npz'), **smplx)
         human_data.dump(osp.join(args.output, 'inference_result.npz'))
 
     if args.show_path is not None:
@@ -384,8 +386,9 @@ def multi_person_with_mmtracking(args, frames_iter):
         shutil.rmtree(frames_folder)
 
 
-def main(args):
-
+def main(args,**kwargs):
+    for key, value in kwargs.items():
+        setattr(args, key, value)
     # prepare input
     frames_iter = prepare_frames(args.input_path)
 
