@@ -73,11 +73,11 @@ if __name__ == "__main__":
 
     script.main(args=args,
                 mesh_reg_checkpoint='data/pretrained_models/hrnet_hmr_expose_body-d7db2e53_20220708.pth',
-                input_path="data/Samples/run_0/run_0.mp4",
+                input_path="data/Samples/run/input.mp4",
                 single_person_demo=True,
                 multi_person_demo=False,
-                output="data/Samples/run_0",
-                show_path="data/Samples/run_0",
+                output="data/Samples/run",
+                show_path="data/Samples/run",
 
                 )
     #    script.main(cam_id="data/Samples/run_0_comp", output="data/Samples/run_0_out.mp4")
