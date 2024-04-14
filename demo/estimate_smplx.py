@@ -25,12 +25,14 @@ from mmhuman3d.utils.transforms import rotmat_to_aa
 
 try:
     from mmdet.apis import inference_detector, init_detector
+
     has_mmdet = True
 except (ImportError, ModuleNotFoundError):
     has_mmdet = False
 try:
     from mmtrack.apis import inference_mot
     from mmtrack.apis import init_model as init_tracking_model
+
     has_mmtrack = True
 except (ImportError, ModuleNotFoundError):
     has_mmtrack = False
@@ -134,6 +136,7 @@ def single_person_with_mmdet(args, frames_iter):
         jaw_pose=[],
         expression=[])
     pred_cams, bboxes_xyxy = [], []
+    keypoints_3d_xyxy = []
 
     frame_id_list, result_list = get_detection_result(args, frames_iter,
                                                       mesh_model, extractor)
@@ -157,11 +160,17 @@ def single_person_with_mmdet(args, frames_iter):
                 mesh_results[0]['param'][key].cpu().numpy())
         pred_cams.append(mesh_results[0]['camera'])
         bboxes_xyxy.append(mesh_results[0]['bbox'])
+        keypoints_3d_xyxy.append(mesh_results[0]['keypoints_3d'])
 
     for key in smplx_results:
         smplx_results[key] = np.array(smplx_results[key])
     pred_cams = np.array(pred_cams)
     bboxes_xyxy = np.array(bboxes_xyxy)
+    keypoints_3d_xyxy = np.array(keypoints_3d_xyxy)
+    # add confidence (0.0) to the keypoints_3d_xyxy
+    keypoints_3d_xyxy = np.concatenate(
+        (keypoints_3d_xyxy, np.zeros_like(keypoints_3d_xyxy[..., :1])),
+        axis=-1)
     # release GPU memory
     del mesh_model
     del extractor
@@ -175,7 +184,7 @@ def single_person_with_mmdet(args, frames_iter):
                 smplx_results[key] = smooth_process(
                     smplx_results[key].reshape(frame_num, -1, dim, 9),
                     smooth_type=args.smooth_type).reshape(
-                        frame_num, dim, 3, 3)
+                    frame_num, dim, 3, 3)
         pred_cams = smooth_process(
             pred_cams[:, np.newaxis],
             smooth_type=args.smooth_type).reshape(frame_num, 3)
@@ -206,7 +215,14 @@ def single_person_with_mmdet(args, frames_iter):
         smplx['betas'] = smplx_results['betas']
         human_data['smplx'] = smplx
         human_data['pred_cams'] = pred_cams
+        human_data['keypoints3d'] = keypoints_3d_xyxy
+        # bbox_xywh = np.copy(bboxes_xyxy)
+        # bbox_xywh[..., 2:] = bbox_xywh[..., 2:] - bbox_xywh[..., :2]
+
+        human_data['bbox_xywh'] = bboxes_xyxy
+
         # todo remove later:
+
         np.savez(osp.join(args.output, 'smplx.npz'), **smplx)
         human_data.dump(osp.join(args.output, 'inference_result.npz'))
 
@@ -236,6 +252,8 @@ def single_person_with_mmdet(args, frames_iter):
             resolution=frames_iter[0].shape[:2],
             origin_frames=frames_folder,
             body_model_config=body_model_config,
+            #plot_kps=True,
+            #kp3d=keypoints_3d_xyxy[:, :, :-1],
             overwrite=True)
         shutil.rmtree(frames_folder)
 
@@ -267,6 +285,7 @@ def multi_person_with_mmtracking(args, frames_iter):
 
     pred_cams = np.zeros([frame_num, max_track_id + 1, 3])
     bboxes_xyxy = np.zeros([frame_num, max_track_id + 1, 5])
+    keypoints_3d_xyxy = np.zeros([frame_num, max_track_id + 1, 14, 3])
 
     track_ids_lists = []
     for i, result in enumerate(mmcv.track_iter_progress(result_list)):
@@ -287,6 +306,7 @@ def multi_person_with_mmtracking(args, frames_iter):
             instance_id = mesh_result['track_id']
             bboxes_xyxy[i, instance_id] = mesh_result['bbox']
             pred_cams[i, instance_id] = mesh_result['camera']
+
             for key in smplx_results:
                 smplx_results[key][
                     i, instance_id] = mesh_result['param'][key].cpu().numpy()
@@ -306,7 +326,7 @@ def multi_person_with_mmtracking(args, frames_iter):
                 smplx_results[key] = smooth_process(
                     smplx_results[key].reshape(frame_num, -1, dim, 9),
                     smooth_type=args.smooth_type).reshape(
-                        frame_num, -1, dim, 3, 3)
+                    frame_num, -1, dim, 3, 3)
         pred_cams = smooth_process(
             pred_cams[:, np.newaxis],
             smooth_type=args.smooth_type).reshape(frame_num, -1, 3)
@@ -337,6 +357,7 @@ def multi_person_with_mmtracking(args, frames_iter):
         smplx['betas'] = smplx_results['betas']
         human_data['smplx'] = smplx
         human_data['pred_cams'] = pred_cams
+        human_data['keypoints_3d'] = keypoints_3d_xyxy
         human_data.dump(osp.join(args.output, 'inference_result.npz'))
 
     # To compress vertices array
@@ -386,7 +407,7 @@ def multi_person_with_mmtracking(args, frames_iter):
         shutil.rmtree(frames_folder)
 
 
-def main(args,**kwargs):
+def main(args, **kwargs):
     for key, value in kwargs.items():
         setattr(args, key, value)
     # prepare input
@@ -429,13 +450,13 @@ if __name__ == '__main__':
     parser.add_argument(
         '--det_checkpoint',
         default='https://download.openmmlab.com/mmdetection/v2.0/faster_rcnn/'
-        'faster_rcnn_r50_fpn_1x_coco/'
-        'faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth',
+                'faster_rcnn_r50_fpn_1x_coco/'
+                'faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth',
         help='Checkpoint file for detection')
     parser.add_argument(
         '--tracking_config',
         default='demo/mmtracking_cfg/'
-        'deepsort_faster-rcnn_fpn_4e_mot17-private-half.py',
+                'deepsort_faster-rcnn_fpn_4e_mot17-private-half.py',
         help='Config file for tracking')
     parser.add_argument(
         '--det_cat_id',
@@ -484,7 +505,7 @@ if __name__ == '__main__':
         type=str,
         default=None,
         help='Smooth the data through the specified type.'
-        'Select in [oneeuro,savgol].')
+             'Select in [oneeuro,savgol].')
     parser.add_argument(
         '--device',
         choices=['cpu', 'cuda'],
